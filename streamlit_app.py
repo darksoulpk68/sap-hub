@@ -1,4 +1,6 @@
 import streamlit as st
+import pandas as pd
+import numpy as np
 
 st.set_page_config(layout="wide")
 
@@ -79,7 +81,111 @@ else:
                 st.info(f"**Action Executed:** {quantity}x {material} requested for {prod_line}. Pallet redirection processed via MSSR (PAD).")
 
     elif department == "Warehousing":
-        st.info("Warehousing transactions are currently under construction.")
+        tab_oe2_entrepot, tab_oe2_pharmacie, tab_oe1_caristes = st.tabs(["OE2 Entrepôt", "OE2 Pharmacie", "OE1 Caristes"])
+
+        with tab_oe2_entrepot:
+            st.subheader("OE2 Entrepôt : Commandes à Préparer (Pick PSS)")
+            st.write("Cet écran simule une version simplifiée de la transaction LT22, utilisée pour la préparation des commandes de palettes complètes.")
+
+            if st.button("Rafraîchir les données"):
+                st.rerun()
+
+            # --- Sample Data ---
+            data = {
+                'TO': [345001, 345002, 345003, 345004, 345005],
+                'HU': [801001, 801002, 801003, 801004, 801005],
+                'Material': ['MAT-1001', 'MAT-1002', 'MAT-1003', 'SR-244', 'SR-245'],
+                'Description': ['Vials', 'Caps', 'Labels', 'Syringes', 'Alcohol Wipes'],
+                'Source': ['A1-01-01', 'A1-01-02', 'B2-03-01', 'C4-02-03', 'D1-05-01'],
+                'Destination': ['PSS-L1', 'PSS-L2', 'PSS-L1', 'PSS-L3', 'PSS-L4'],
+                'Status': ['Open', 'Open', 'Open', 'Open', 'Open'],
+                'Operator': ['', 'User.A', '', 'User.B', '']
+            }
+            df_entrepot = pd.DataFrame(data)
+            
+            st.dataframe(df_entrepot, use_container_width=True)
+
+            st.subheader("Confirmer un TO (Simulation LT12)")
+            selected_to = st.selectbox("Sélectionner un TO à confirmer:", df_entrepot['TO'])
+            
+            if st.button("Confirmer le Pick du TO", type="primary"):
+                st.success(f"✅ TO {selected_to} confirmé!")
+                st.info(f"La palette HU {df_entrepot[df_entrepot['TO'] == selected_to]['HU'].values[0]} a été déplacée vers la zone PAD.")
+
+
+        with tab_oe2_pharmacie:
+            st.subheader("OE2 Pharmacie : Sorties de matériel (Direction APH)")
+            st.write("Liste des TOs créés par la pharmacie pour les sorties de matériel.")
+
+            if st.button("Rafraîchir les données "): #space to avoid duplicate key error
+                st.rerun()
+
+            # --- Sample Data ---
+            data_pharma = {
+                'TO': [346001, 346002, 346003],
+                'Material': ['PH-201', 'PH-202', 'PH-203'],
+                'Batch': ['B-0010', 'B-0011', 'B-0012'],
+                'Quantity': [1, 1, 1],
+                'Status': ['Open', 'Open', 'Open']
+            }
+            df_pharma = pd.DataFrame(data_pharma)
+            st.dataframe(df_pharma, use_container_width=True)
+            
+            st.subheader("Confirmer un TO (Simulation LT12)")
+            selected_to_pharma = st.selectbox("Sélectionner un TO à confirmer:", df_pharma['TO'])
+
+            if st.button("Confirmer le TO de la Pharmacie", type="primary"):
+                st.success(f"✅ TO {selected_to_pharma} confirmé!")
+
+
+        with tab_oe1_caristes:
+            st.subheader("OE1 Caristes : Gestion des Emplacements")
+
+            sub_menu = st.radio("Navigation Cariste:", ["Commandes de Lots", "Entreposage Staging"], horizontal=True, label_visibility="collapsed")
+
+            if sub_menu == "Commandes de Lots":
+                st.write("#### Commande de lots pour la fabrication")
+                col1, col2 = st.columns(2)
+                with col1:
+                    lot_to_order = st.text_input("Entrer un numéro de lot à commander:")
+                    if st.button("Commander le lot"):
+                        st.success(f"Lot {lot_to_order} commandé pour la fabrication.")
+                with col2:
+                    st.write("**Zones d'entreposage des palettes commandées:**")
+                    st.text("Zone STG-A, STG-B, STG-C")
+
+
+            elif sub_menu == "Entreposage Staging":
+                st.write("#### État de l'entreposage Staging (Locations 1-50)")
+
+                # --- Sample Data ---
+                locations = [f'STG-{i:02d}' for i in range(1, 51)]
+                lots_1 = [f'B-0{np.random.randint(100, 200)}' if np.random.rand() > 0.3 else '' for _ in range(50)]
+                lots_2 = [f'B-0{np.random.randint(200, 300)}' if (l != '' and np.random.rand() > 0.7) else '' for l in lots_1]
+                destinations = [np.random.choice(['Ligne 1', 'Ligne 2', 'Ligne 3', 'Ligne 4', 'Déchet']) if l != '' else '' for l in lots_1]
+                
+                df_staging = pd.DataFrame({
+                    'Location': locations,
+                    'Lot 1': lots_1,
+                    'Lot 2': lots_2,
+                    'Destination': destinations
+                })
+
+                def style_destination(val):
+                    color = ''
+                    if 'Ligne 1' in val: color = 'blue'
+                    elif 'Ligne 2' in val: color = 'green'
+                    elif 'Ligne 3' in val: color = 'orange'
+                    elif 'Ligne 4' in val: color = 'purple'
+                    elif 'Déchet' in val: color = 'red'
+                    return f'color: {color}; font-weight: bold;'
+
+                st.dataframe(
+                    df_staging.style.applymap(style_destination, subset=['Destination']),
+                    use_container_width=True
+                )
+
+
     elif department == "Manufacturing":
         st.info("Manufacturing transactions are currently under construction.")
     elif department == "Management":
