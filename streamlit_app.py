@@ -40,10 +40,47 @@ if 'department' not in st.session_state:
 else:
     # This part is displayed after a department is selected
     department = st.session_state.department
-    st.title(f"Department: {department}")
-    st.success(f"You have selected the **{department}** department.")
-    st.info("In a real application, this would navigate you to the department-specific dashboard with appropriate permissions.")
 
-    if st.button("⬅️ Go back to department selection"):
-        del st.session_state.department
-        st.rerun()
+    # Move the navigation to the sidebar to keep the workspace clean
+    with st.sidebar:
+        st.title(f"🏢 {department}")
+        if st.button("⬅️ Change Department", use_container_width=True):
+            del st.session_state.department
+            st.rerun()
+
+    st.title(f"{department} Transactions")
+
+    if department == "Packaging":
+        # Tabs act as "transaction separators"
+        tab_oc1, tab_placeholder1, tab_placeholder2 = st.tabs(["OC1 - Material Order", "Onglet B", "Onglet C"])
+
+        with tab_oc1:
+            st.subheader("Transaction OC1: Material Requirements (LP12 Simulation)")
+            st.write("Order materials or non-consumables for your packaging line.")
+
+            # 1. Assign production line
+            prod_line = st.selectbox("Select Production Line", ["Line 1", "Line 2", "Line 3", "Line 4"])
+
+            # 2. Choose Material Source/Type
+            mat_type = st.radio("Material Source", ["BOM Material (COR3 List)", "Non-consumable"])
+
+            # 3. Dynamic selection based on the chosen material type
+            if mat_type == "BOM Material (COR3 List)":
+                material = st.selectbox("Select Material", ["MAT-1001 (Vials)", "MAT-1002 (Caps)", "MAT-1003 (Labels)"])
+            else:
+                material = st.selectbox("Select Non-consumable", ["Cellophane Roll", "Packaging Tape", "Glue Box"])
+
+            # 4. Quantity selection
+            quantity = st.number_input("Quantity", min_value=1, step=1)
+
+            # 5. Create Transfer Order (TO)
+            if st.button("Create TO (Transfer Order)", type="primary"):
+                st.success(f"✅ Transfer Order created successfully!")
+                st.info(f"**Action Executed:** {quantity}x {material} requested for {prod_line}. Pallet redirection processed via MSSR (PAD).")
+
+    elif department == "Warehousing":
+        st.info("Warehousing transactions are currently under construction.")
+    elif department == "Manufacturing":
+        st.info("Manufacturing transactions are currently under construction.")
+    elif department == "Management":
+        st.info("Management transactions are currently under construction.")
