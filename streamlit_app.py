@@ -73,6 +73,69 @@ def sap_genius_chat():
         except Exception as e:
             st.error(f"An error occurred: {e}")
 
+# --- MOCK PERMISSIONS MATRIX ---
+# This matrix tells your IT team exactly what granular authorization checks they need to build.
+ROLE_PERMISSIONS = {
+    "Packaging": ["VIEW_OC1", "CREATE_PACKAGING_TO"],
+    "Warehousing": ["VIEW_OE1", "VIEW_OE2", "CONFIRM_PICK_TO", "ORDER_MFG_BATCH", "VIEW_STAGING"],
+    "Manufacturing": ["VIEW_MFG_DASHBOARD", "CONFIRM_PROCESS_ORDER"],
+    "Management": ["VIEW_ALL_REPORTS", "APPROVE_VARIANCES"]
+}
+
+def has_permission(action_code: str) -> bool:
+    """
+    Checks if the currently selected department has the granular permission.
+    In production, IT will replace this with a call to SAP (e.g., checking an Auth Object).
+    """
+    current_dept = st.session_state.get('department')
+    if not current_dept:
+        return False
+    return action_code in ROLE_PERMISSIONS.get(current_dept, [])
+
+# --- GLOBAL SHARED DATABASE MOCK ---
+# We use a class and @st.cache_resource to create a global "Singleton"
+# that is shared across ALL users and ALL browser tabs connected to the app.
+class MockSAPDatabase:
+    def __init__(self):
+        self.df = pd.DataFrame({
+            'TO': [345001, 345002, 345003],
+            'HU': [801001, 801002, 801003],
+            'Material': ['MAT-1001', 'MAT-1002', 'MAT-1003'],
+            'Description': ['Vials', 'Caps', 'Labels'],
+            'Source': ['A1-01-01', 'A1-01-02', 'B2-03-01'],
+            'Destination': ['PSS-L1', 'PSS-L2', 'PSS-L1'],
+            'Status': ['Open', 'Open', 'Open'],
+            'Operator': ['', 'User.A', '']
+        })
+
+@st.cache_resource
+def get_global_database():
+    return MockSAPDatabase()
+
+# Initialize connection to our global mock DB
+sap_db = get_global_database()
+
+def simulate_sap_push_event():
+    """
+    Simulates an external system (or another user) injecting a record
+    into the global SAP database.
+    """
+    new_to_number = int(sap_db.df['TO'].max() + 1)
+    new_hu_number = int(sap_db.df['HU'].max() + 1)
+    
+    new_record = pd.DataFrame([{
+        'TO': new_to_number,
+        'HU': new_hu_number,
+        'Material': 'MAT-INJECT',
+        'Description': 'Injected Material',
+        'Source': 'RECV-ZONE',
+        'Destination': 'PSS-L3',
+        'Status': 'Open',
+        'Operator': ''
+    }])
+    
+    # Update the global database directly
+    sap_db.df = pd.concat([sap_db.df, new_record], ignore_index=True)
 
 # Check if a department has been selected in the session state
 if 'department' not in st.session_state:
@@ -133,6 +196,12 @@ else:
                     del st.session_state[key]
             st.rerun()
 
+        st.divider()
+        st.subheader("🛠️ Dev Tools: Mock Event")
+        st.write("Simulate SAP pushing a new Transfer Order to the app in real-time.")
+        if st.button("Simulate Incoming SAP Event"):
+            simulate_sap_push_event()
+            st.rerun() # In a real WebSocket implementation, the JS component triggers this automatically
 
     # --- Content Area ---
     if st.session_state.menu_selection == "SAP Genius":
@@ -164,9 +233,15 @@ else:
                 quantity = st.number_input("Quantity", min_value=1, step=1)
 
                 # 5. Create Transfer Order (TO)
-                if st.button("Create TO (Transfer Order)", type="primary"):
-                    st.success(f"✅ Transfer Order created successfully!")
-                    st.info(f"**Action Executed:** {quantity}x {material} requested for {prod_line}. Pallet redirection processed via MSSR (PAD).")
+                # --- RBP IN ACTION ---
+                # We check the granular permission before allowing the action.
+                if has_permission("CREATE_PACKAGING_TO"):
+                    if st.button("Create TO (Transfer Order)", type="primary"):
+                        st.success(f"✅ Transfer Order created successfully!")
+                        st.info(f"**Action Executed:** {quantity}x {material} requested for {prod_line}. Pallet redirection processed via MSSR (PAD).")
+                else:
+                    st.button("Create TO (Transfer Order)", disabled=True, help="🔒 Missing SAP Authorization: CREATE_PACKAGING_TO")
+                    st.error("You do not have the required SAP permissions to create packaging Transfer Orders.")
 
         elif department == "Warehousing":
             tab_oe2_entrepot, tab_oe2_pharmacie, tab_oe1_caristes = st.tabs(["OE2 Entrepôt", "OE2 Pharmacie", "OE1 Caristes"])
@@ -175,30 +250,30 @@ else:
                 st.subheader("OE2 Entrepôt : Commandes à Préparer (Pick PSS)")
                 st.write("Cet écran simule une version simplifiée de la transaction LT22, utilisée pour la préparation des commandes de palettes complètes.")
 
-                if st.button("Rafraîchir les données"):
-                    st.rerun()
+                # --- LIVE POLLING COMPONENT ---
+                # st.fragment with run_every will automatically re-run JUST this function
+                # every 2 seconds, checking the global sap_db for updates.
+                @st.fragment(run_every="2s")
+                def live_monitoring_table():
+                    st.write("*(🟢 Live View - Auto-syncing with global server...)*")
+                    st.dataframe(sap_db.df, use_container_width=True)
 
-                # --- Sample Data ---
-                data = {
-                    'TO': [345001, 345002, 345003, 345004, 345005],
-                    'HU': [801001, 801002, 801003, 801004, 801005],
-                    'Material': ['MAT-1001', 'MAT-1002', 'MAT-1003', 'SR-244', 'SR-245'],
-                    'Description': ['Vials', 'Caps', 'Labels', 'Syringes', 'Alcohol Wipes'],
-                    'Source': ['A1-01-01', 'A1-01-02', 'B2-03-01', 'C4-02-03', 'D1-05-01'],
-                    'Destination': ['PSS-L1', 'PSS-L2', 'PSS-L1', 'PSS-L3', 'PSS-L4'],
-                    'Status': ['Open', 'Open', 'Open', 'Open', 'Open'],
-                    'Operator': ['', 'User.A', '', 'User.B', '']
-                }
-                df_entrepot = pd.DataFrame(data)
-                
-                st.dataframe(df_entrepot, use_container_width=True)
+                live_monitoring_table()
 
                 st.subheader("Confirmer un TO (Simulation LT12)")
-                selected_to = st.selectbox("Sélectionner un TO à confirmer:", df_entrepot['TO'])
+                selected_to = st.selectbox("Sélectionner un TO à confirmer:", sap_db.df['TO'])
                 
-                if st.button("Confirmer le Pick du TO", type="primary"):
-                    st.success(f"✅ TO {selected_to} confirmé!")
-                    st.info(f"La palette HU {df_entrepot[df_entrepot['TO'] == selected_to]['HU'].values[0]} a été déplacée vers la zone PAD.")
+                # --- RBP IN ACTION ---
+                if has_permission("CONFIRM_PICK_TO"):
+                    if st.button("Confirmer le Pick du TO", type="primary"):
+                        st.success(f"✅ TO {selected_to} confirmé!")
+                        
+                        # Update the GLOBAL state when a user takes action!
+                        sap_db.df.loc[sap_db.df['TO'] == selected_to, 'Status'] = 'Confirmed'
+                        
+                        st.info(f"La palette HU {sap_db.df[sap_db.df['TO'] == selected_to]['HU'].values[0]} a été déplacée vers la destination.")
+                else:
+                    st.button("Confirmer le Pick du TO", disabled=True, help="🔒 Missing SAP Authorization: CONFIRM_PICK_TO")
 
 
             with tab_oe2_pharmacie:

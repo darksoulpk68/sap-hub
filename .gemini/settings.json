@@ -1,0 +1,21 @@
+{
+    "model": "gemini-1.5-pro-latest",
+    "temperature": 0.7,
+    "personaFile": "persona.md",
+    "mcp": {
+        "servers": {
+            "ui5-mcp-server": {
+                "command": "npx",
+                "args": [
+                    "--registry",
+                    "https://registry.npmjs.org",
+                    "@ui5/mcp-server@0.2.9"
+                ],
+                "env": {
+                    "UI5_MCP_SERVER_ALLOWED_DOMAINS": "localhost, services.odata.org",
+                    "UI5_LOG_LVL": "info"
+                }
+            }
+        }
+    }
+}
