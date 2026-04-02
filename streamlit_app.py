@@ -402,8 +402,8 @@ else:
                                     st.warning(f"❌ Aucun TO ouvert trouvé pour le HU {hu_int}.")
                             except ValueError:
                                 st.error("Format de HU invalide. Veuillez entrer uniquement des chiffres.")
-                            else:
-                            st.warning("Veuillez scanner un HU avant de confirmer.")
+                    else:
+                        st.warning("Veuillez scanner un HU avant de confirmer.")
                 else:
                     st.button("Confirmer le Pick", disabled=True, help="🔒 Missing SAP Authorization: CONFIRM_PICK_TO")
 
