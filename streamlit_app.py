@@ -135,6 +135,22 @@ class MockSAPDatabase:
             'Destination': destinations
         })
 
+        # --- Production Lines & PO Data ---
+        self.lines = [f"Line {i}" for i in range(1, 10)] + ["Line 18", "Line 19", "Line 20"]
+        self.po_data = {}
+        for i, line in enumerate(self.lines):
+            self.po_data[line] = {
+                "po": f"PRD-100{45+i}",
+                "materials": {
+                    "MAT-1001 (Vials)": {"target": 10000, "confirmed": np.random.randint(2000, 8000)},
+                    "MAT-1002 (Caps)": {"target": 10000, "confirmed": np.random.randint(1500, 8500)},
+                    "MAT-1003 (Labels)": {"target": 10500, "confirmed": np.random.randint(1000, 9000)},
+                    "Cellophane Roll": {"target": 50, "confirmed": np.random.randint(5, 45)},
+                    "Packaging Tape": {"target": 20, "confirmed": np.random.randint(2, 18)},
+                    "Glue Box": {"target": 5, "confirmed": np.random.randint(1, 4)}
+                }
+            }
+
 @st.cache_resource
 def get_global_database():
     return MockSAPDatabase()
@@ -238,26 +254,18 @@ else:
 
         if department == "Packaging":
             # Tabs act as "transaction separators"
-            tab_oc1, tab_placeholder1, tab_placeholder2 = st.tabs(["OC1 - Material Order", "Onglet B", "Onglet C"])
+            tab_oc1, tab_manage_pos, tab_placeholder2 = st.tabs(["OC1 - Material Order", "Manage POs", "Onglet C"])
 
             with tab_oc1:
                 st.subheader("Transaction OC1: Material Requirements (LP12 Simulation)")
                 st.caption("Order materials or non-consumables for your packaging line.")
 
-                # Mock data for Process Orders (COR3 Simulation)
-                po_data = {
-                    "Line 1": {"po": "PRD-10045", "target": 5000, "confirmed": 3200},
-                    "Line 2": {"po": "PRD-10046", "target": 12000, "confirmed": 11500},
-                    "Line 3": {"po": "PRD-10047", "target": 800, "confirmed": 100},
-                    "Line 4": {"po": "PRD-10048", "target": 3500, "confirmed": 3500},
-                }
-
                 # Row 1: Line, Active PO, and Source
                 col1, col2, col3 = st.columns([1, 1, 2])
                 with col1:
-                    prod_line = st.selectbox("Line", ["Line 1", "Line 2", "Line 3", "Line 4"])
+                    prod_line = st.selectbox("Line", sap_db.lines)
                 with col2:
-                    current_po = po_data[prod_line]
+                    current_po = sap_db.po_data[prod_line]
                     st.markdown(f"<div style='margin-top: 2rem;'><b>Active PO:</b> <span style='color: #0078D4; font-family: monospace; font-size: 1.1em;'>{current_po['po']}</span></div>", unsafe_allow_html=True)
                 with col3:
                     mat_type = st.radio("Material Source", ["BOM (COR3)", "Non-consumable"], horizontal=True)
@@ -272,9 +280,11 @@ else:
                 with col5:
                     quantity = st.number_input("Req. Qty", min_value=1, step=1)
                 with col6:
-                    rem = current_po['target'] - current_po['confirmed']
-                    progress_val = min(current_po['confirmed'] / current_po['target'], 1.0)
-                    st.markdown(f"<div style='font-size:0.85em; margin-bottom: 4px; margin-top: 0.5rem;'><b>COR3 Prod. Status:</b> {current_po['confirmed']} done | <b>{rem} left</b></div>", unsafe_allow_html=True)
+                    # Fetch material specific tracking
+                    mat_data = current_po["materials"].get(material, {"target": 100, "confirmed": 0})
+                    rem = mat_data['target'] - mat_data['confirmed']
+                    progress_val = min(mat_data['confirmed'] / mat_data['target'], 1.0) if mat_data['target'] > 0 else 0.0
+                    st.markdown(f"<div style='font-size:0.85em; margin-bottom: 4px; margin-top: 0.5rem;'><b>COR3 Prod. Status:</b> {mat_data['confirmed']} done | <b>{rem} left</b></div>", unsafe_allow_html=True)
                     st.progress(progress_val)
 
                 # 5. Create Transfer Order (TO)
@@ -303,6 +313,28 @@ else:
                 else:
                     st.button("Create TO (Transfer Order)", disabled=True, help="🔒 Missing SAP Authorization: CREATE_PACKAGING_TO")
                     st.error("You do not have the required SAP permissions to create packaging Transfer Orders.")
+
+            with tab_manage_pos:
+                st.subheader("Manage Active Process Orders")
+                st.write("Bulk update the active Process Order (PO) running on each packaging line.")
+
+                # Create a dataframe for the editor
+                po_df = pd.DataFrame([
+                    {"Line": line, "Active PO": data["po"]}
+                    for line, data in sap_db.po_data.items()
+                ])
+
+                # Use st.data_editor to allow bulk changes directly in the UI table
+                edited_po_df = st.data_editor(po_df, hide_index=True, use_container_width=True, disabled=["Line"])
+
+                if st.button("Save PO Changes", type="primary"):
+                    for index, row in edited_po_df.iterrows():
+                        line = row["Line"]
+                        new_po = row["Active PO"]
+                        if sap_db.po_data[line]["po"] != new_po:
+                            sap_db.po_data[line]["po"] = new_po
+                            # Material confirmed counts could optionally be reset here if PO changes
+                    st.success("Active POs updated successfully!")
 
         elif department == "Warehousing":
             tab_oe2_entrepot, tab_oe2_pharmacie, tab_oe1_caristes = st.tabs(["OE2 Entrepôt", "OE2 Pharmacie", "OE1 Caristes"])
