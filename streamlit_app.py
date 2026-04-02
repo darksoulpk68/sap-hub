@@ -152,7 +152,14 @@ class MockSAPDatabase:
             }
 
 @st.cache_resource
-def get_global_database():
+def get_global_database(_version="1.1"): # Increment this number to force-clear the cache
+    """
+    Returns a singleton instance of the mock database.
+
+    The _version parameter is a trick to allow cache invalidation during development.
+    If you change the structure of MockSAPDatabase, increment the version number
+    to force Streamlit to create a new instance.
+    """
     return MockSAPDatabase()
 
 # Initialize connection to our global mock DB
