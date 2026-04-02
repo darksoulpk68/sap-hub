@@ -3,6 +3,7 @@ import pandas as pd
 import numpy as np
 import os
 import google.generativeai as genai
+import streamlit.components.v1 as components
 
 st.set_page_config(layout="wide")
 
@@ -366,6 +367,30 @@ else:
                 # every 2 seconds, checking the global sap_db for updates.
                 @st.fragment(run_every="2s")
                 def live_monitoring_table():
+                    # Check if the number of open TOs increased to trigger a tab flash
+                    if 'last_to_count' not in st.session_state:
+                        st.session_state.last_to_count = len(sap_db.df)
+                        
+                    current_count = len(sap_db.df)
+                    if current_count > st.session_state.last_to_count:
+                        components.html("""
+                            <script>
+                                var originalTitle = window.parent.document.title || 'SAP Hub';
+                                var isFlashed = false;
+                                var flashCount = 0;
+                                var flashInterval = setInterval(function() {
+                                    window.parent.document.title = isFlashed ? originalTitle : '🔔 Nouveau TO!';
+                                    isFlashed = !isFlashed;
+                                    flashCount++;
+                                    if(flashCount >= 10) {
+                                        clearInterval(flashInterval);
+                                        window.parent.document.title = originalTitle;
+                                    }
+                                }, 1000);
+                            </script>
+                        """, height=0, width=0)
+                        st.session_state.last_to_count = current_count
+
                     col1, col2 = st.columns([3, 1])
                     with col1:
                         st.write("*(🟢 Live View - Auto-syncing with global server...)*")
