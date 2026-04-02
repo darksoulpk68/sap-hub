@@ -242,22 +242,40 @@ else:
 
             with tab_oc1:
                 st.subheader("Transaction OC1: Material Requirements (LP12 Simulation)")
-                st.write("Order materials or non-consumables for your packaging line.")
+                st.caption("Order materials or non-consumables for your packaging line.")
 
-                # 1. Assign production line
-                prod_line = st.selectbox("Select Production Line", ["Line 1", "Line 2", "Line 3", "Line 4"])
+                # Mock data for Process Orders (COR3 Simulation)
+                po_data = {
+                    "Line 1": {"po": "PRD-10045", "target": 5000, "confirmed": 3200},
+                    "Line 2": {"po": "PRD-10046", "target": 12000, "confirmed": 11500},
+                    "Line 3": {"po": "PRD-10047", "target": 800, "confirmed": 100},
+                    "Line 4": {"po": "PRD-10048", "target": 3500, "confirmed": 3500},
+                }
 
-                # 2. Choose Material Source/Type
-                mat_type = st.radio("Material Source", ["BOM Material (COR3 List)", "Non-consumable"])
+                # Row 1: Line, Active PO, and Source
+                col1, col2, col3 = st.columns([1, 1, 2])
+                with col1:
+                    prod_line = st.selectbox("Line", ["Line 1", "Line 2", "Line 3", "Line 4"])
+                with col2:
+                    current_po = po_data[prod_line]
+                    st.markdown(f"<div style='margin-top: 2rem;'><b>Active PO:</b> <span style='color: #0078D4; font-family: monospace; font-size: 1.1em;'>{current_po['po']}</span></div>", unsafe_allow_html=True)
+                with col3:
+                    mat_type = st.radio("Material Source", ["BOM (COR3)", "Non-consumable"], horizontal=True)
 
-                # 3. Dynamic selection based on the chosen material type
-                if mat_type == "BOM Material (COR3 List)":
-                    material = st.selectbox("Select Material", ["MAT-1001 (Vials)", "MAT-1002 (Caps)", "MAT-1003 (Labels)"])
-                else:
-                    material = st.selectbox("Select Non-consumable", ["Cellophane Roll", "Packaging Tape", "Glue Box"])
-
-                # 4. Quantity selection
-                quantity = st.number_input("Quantity", min_value=1, step=1)
+                # Row 2: Material, Qty, COR3 Status
+                col4, col5, col6 = st.columns([1.5, 1, 1.5])
+                with col4:
+                    if mat_type == "BOM (COR3)":
+                        material = st.selectbox("Material", ["MAT-1001 (Vials)", "MAT-1002 (Caps)", "MAT-1003 (Labels)"])
+                    else:
+                        material = st.selectbox("Material", ["Cellophane Roll", "Packaging Tape", "Glue Box"])
+                with col5:
+                    quantity = st.number_input("Req. Qty", min_value=1, step=1)
+                with col6:
+                    rem = current_po['target'] - current_po['confirmed']
+                    progress_val = min(current_po['confirmed'] / current_po['target'], 1.0)
+                    st.markdown(f"<div style='font-size:0.85em; margin-bottom: 4px; margin-top: 0.5rem;'><b>COR3 Prod. Status:</b> {current_po['confirmed']} done | <b>{rem} left</b></div>", unsafe_allow_html=True)
+                    st.progress(progress_val)
 
                 # 5. Create Transfer Order (TO)
                 # --- RBP IN ACTION ---
