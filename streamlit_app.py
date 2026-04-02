@@ -283,9 +283,7 @@ else:
                     if mat_type == "BOM (COR3)":
                         material = st.selectbox("Material", ["MAT-1001 (Vials)", "MAT-1002 (Caps)", "MAT-1003 (Labels)"])
                     else:
-                        material = st.text_input("Material Description", placeholder="Enter non-consumable name...")
-                        if not material:  # Fallback if left empty
-                            material = "Misc. Non-consumable"
+                        material = st.selectbox("Material", ["Cellophane Roll", "Packaging Tape", "Glue Box"])
                 with col5:
                     qty_label = "Req. Qty (Pallets)" if mat_type == "BOM (COR3)" else "Req. Qty (Each)"
                     quantity = st.number_input(qty_label, min_value=1, step=1)
@@ -303,7 +301,8 @@ else:
                 if has_permission("CREATE_PACKAGING_TO"):
                     if st.button("Create TO (Transfer Order)", type="primary"):
                         new_to_number = int(sap_db.df['TO'].max() + 1) if not sap_db.df.empty else 345000
-                        new_hu_number = int(sap_db.df['HU'].max() + 1) if not sap_db.df.empty else 801000
+                        max_hu = pd.to_numeric(sap_db.df['HU'], errors='coerce').max()
+                        new_hu_number = int(max_hu + 1) if pd.notna(max_hu) else 801000
                         
                         if mat_type == "BOM (COR3)":
                             qty_desc = f"{quantity} Pallet(s)"
@@ -317,7 +316,7 @@ else:
                         # Update the global state
                         new_record = pd.DataFrame([{
                             'TO': new_to_number,
-                            'HU': new_hu_number,
+                            'HU': new_hu_number if mat_type == "BOM (COR3)" else "N/A",
                             'Material': mat_code,
                             'Description': f"{qty_desc} of {mat_name} for {prod_line}",
                             'Source': 'PKG-REQ',
@@ -403,11 +402,32 @@ else:
                                     st.warning(f"❌ Aucun TO ouvert trouvé pour le HU {hu_int}.")
                             except ValueError:
                                 st.error("Format de HU invalide. Veuillez entrer uniquement des chiffres.")
-                        else:
+                            else:
                             st.warning("Veuillez scanner un HU avant de confirmer.")
                 else:
                     st.button("Confirmer le Pick", disabled=True, help="🔒 Missing SAP Authorization: CONFIRM_PICK_TO")
 
+                st.divider()
+                st.subheader("Confirmer un Pick (Non-Consommables)")
+                st.write("Les non-consommables ne nécessitent pas de scan HU. Confirmez-les manuellement :")
+                
+                open_non_bom = sap_db.df[(sap_db.df['Material'] == 'NON-BOM') & (sap_db.df['Status'] == 'Open')]
+                
+                if has_permission("CONFIRM_PICK_TO"):
+                    if not open_non_bom.empty:
+                        for _, row in open_non_bom.iterrows():
+                            col_a, col_b = st.columns([4, 1])
+                            with col_a:
+                                st.markdown(f"**TO {row['TO']}** - {row['Description']} *(Dest: {row['Destination']})*")
+                            with col_b:
+                                if st.button("✔️ Confirmer", key=f"btn_{row['TO']}"):
+                                    sap_db.df.loc[sap_db.df['TO'] == row['TO'], 'Status'] = 'Confirmed'
+                                    st.toast(f"✅ TO {row['TO']} confirmé!")
+                                    st.rerun()
+                    else:
+                        st.info("Aucune commande de non-consommable en attente.")
+                else:
+                    st.info("🔒 Vous n'avez pas l'autorisation de confirmer ces TOs.")
 
             with tab_oe2_pharmacie:
                 st.subheader("OE2 Pharmacie : Sorties de matériel (Direction APH)")
