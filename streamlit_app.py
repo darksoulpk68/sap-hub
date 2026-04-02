@@ -298,27 +298,46 @@ else:
                 # every 2 seconds, checking the global sap_db for updates.
                 @st.fragment(run_every="2s")
                 def live_monitoring_table():
-                    st.write("*(🟢 Live View - Auto-syncing with global server...)*")
-                    st.dataframe(sap_db.df, use_container_width=True)
+                    col1, col2 = st.columns([3, 1])
+                    with col1:
+                        st.write("*(🟢 Live View - Auto-syncing with global server...)*")
+                    with col2:
+                        # Small toggle on the right to show only confirmed TOs
+                        show_confirmed = st.toggle("Historique (30 derniers confirmés)")
+                        
+                    if show_confirmed:
+                        df_to_show = sap_db.df[sap_db.df['Status'] == 'Confirmed'].tail(30)
+                    else:
+                        df_to_show = sap_db.df[sap_db.df['Status'] == 'Open']
+                        
+                    # Added height parameter to restrict table size and enable scrollbar
+                    st.dataframe(df_to_show, use_container_width=True, height=250)
 
                 live_monitoring_table()
 
-                st.subheader("Confirmer un TO (Simulation LT12)")
-                open_tos = sap_db.df[sap_db.df['Status'] == 'Open']['TO']
-                selected_to = st.selectbox("Sélectionner un TO à confirmer:", open_tos)
+                st.subheader("Confirmer un Pick (Simulation LT12 par scan)")
+                scanned_hu = st.text_input("Scanner l'étiquette HU (ex: 801001):")
                 
                 # --- RBP IN ACTION ---
                 if has_permission("CONFIRM_PICK_TO"):
-                    if st.button("Confirmer le Pick du TO", type="primary"):
-                        if selected_to:
-                            # Update the GLOBAL state when a user takes action!
-                            sap_db.df.loc[sap_db.df['TO'] == selected_to, 'Status'] = 'Confirmed'
-                            st.success(f"✅ TO {selected_to} confirmé!")
-                            st.info(f"La palette HU {sap_db.df[sap_db.df['TO'] == selected_to]['HU'].values[0]} a été déplacée vers la destination.")
+                    if st.button("Confirmer le Pick", type="primary"):
+                        if scanned_hu:
+                            try:
+                                hu_int = int(scanned_hu)
+                                matching_rows = sap_db.df[(sap_db.df['HU'] == hu_int) & (sap_db.df['Status'] == 'Open')]
+                                
+                                if not matching_rows.empty:
+                                    to_num = matching_rows.iloc[0]['TO']
+                                    sap_db.df.loc[sap_db.df['TO'] == to_num, 'Status'] = 'Confirmed'
+                                    st.success(f"✅ Pick confirmé pour le HU {hu_int} (TO: {to_num})!")
+                                else:
+                                    st.warning(f"❌ Aucun TO ouvert trouvé pour le HU {hu_int}.")
+                            except ValueError:
+                                st.error("Format de HU invalide. Veuillez entrer uniquement des chiffres.")
                         else:
-                            st.warning("Aucun TO ouvert à confirmer.")
+                            st.warning("Veuillez scanner un HU avant de confirmer.")
                 else:
-                    st.button("Confirmer le Pick du TO", disabled=True, help="🔒 Missing SAP Authorization: CONFIRM_PICK_TO")
+                    st.button("Confirmer le Pick", disabled=True, help="🔒 Missing SAP Authorization: CONFIRM_PICK_TO")
 
 
             with tab_oe2_pharmacie:
