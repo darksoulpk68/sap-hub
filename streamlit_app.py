@@ -107,6 +107,33 @@ class MockSAPDatabase:
             'Status': ['Open', 'Open', 'Open'],
             'Operator': ['', 'User.A', '']
         })
+        
+        self.pharma_df = pd.DataFrame({
+            'TO': [346001, 346002, 346003],
+            'Material': ['PH-201', 'PH-202', 'PH-203'],
+            'Batch': ['B-0010', 'B-0011', 'B-0012'],
+            'Quantity': [1, 1, 1],
+            'Status': ['Open', 'Open', 'Open']
+        })
+        
+        self.ordered_lots_df = pd.DataFrame([{
+            'Timestamp': pd.Timestamp.now().strftime("%Y-%m-%d %H:%M:%S"),
+            'Lot': 'B-0099',
+            'Destination': 'Fabrication',
+            'Status': 'Livré'
+        }])
+
+        locations = [f'STG-{i:02d}' for i in range(1, 51)]
+        lots_1 = [f'B-0{np.random.randint(100, 200)}' if np.random.rand() > 0.3 else '' for _ in range(50)]
+        lots_2 = [f'B-0{np.random.randint(200, 300)}' if (l != '' and np.random.rand() > 0.7) else '' for l in lots_1]
+        destinations = [np.random.choice(['Ligne 1', 'Ligne 2', 'Ligne 3', 'Ligne 4', 'Déchet']) if l != '' else '' for l in lots_1]
+        
+        self.staging_df = pd.DataFrame({
+            'Location': locations,
+            'Lot 1': lots_1,
+            'Lot 2': lots_2,
+            'Destination': destinations
+        })
 
 @st.cache_resource
 def get_global_database():
@@ -237,8 +264,24 @@ else:
                 # We check the granular permission before allowing the action.
                 if has_permission("CREATE_PACKAGING_TO"):
                     if st.button("Create TO (Transfer Order)", type="primary"):
-                        st.success(f"✅ Transfer Order created successfully!")
-                        st.info(f"**Action Executed:** {quantity}x {material} requested for {prod_line}. Pallet redirection processed via MSSR (PAD).")
+                        new_to_number = int(sap_db.df['TO'].max() + 1) if not sap_db.df.empty else 345000
+                        new_hu_number = int(sap_db.df['HU'].max() + 1) if not sap_db.df.empty else 801000
+                        
+                        # Update the global state
+                        new_record = pd.DataFrame([{
+                            'TO': new_to_number,
+                            'HU': new_hu_number,
+                            'Material': material.split(" ")[0],
+                            'Description': f"{quantity}x {material.split(' ', 1)[1] if ' ' in material else ''} for {prod_line}",
+                            'Source': 'PKG-REQ',
+                            'Destination': 'PAD',
+                            'Status': 'Open',
+                            'Operator': 'Packaging'
+                        }])
+                        sap_db.df = pd.concat([sap_db.df, new_record], ignore_index=True)
+                        
+                        st.success(f"✅ Transfer Order {new_to_number} created successfully!")
+                        st.info(f"**Action Executed:** {quantity}x {material} requested for {prod_line}. Pallet redirection requested.")
                 else:
                     st.button("Create TO (Transfer Order)", disabled=True, help="🔒 Missing SAP Authorization: CREATE_PACKAGING_TO")
                     st.error("You do not have the required SAP permissions to create packaging Transfer Orders.")
@@ -261,17 +304,19 @@ else:
                 live_monitoring_table()
 
                 st.subheader("Confirmer un TO (Simulation LT12)")
-                selected_to = st.selectbox("Sélectionner un TO à confirmer:", sap_db.df['TO'])
+                open_tos = sap_db.df[sap_db.df['Status'] == 'Open']['TO']
+                selected_to = st.selectbox("Sélectionner un TO à confirmer:", open_tos)
                 
                 # --- RBP IN ACTION ---
                 if has_permission("CONFIRM_PICK_TO"):
                     if st.button("Confirmer le Pick du TO", type="primary"):
-                        st.success(f"✅ TO {selected_to} confirmé!")
-                        
-                        # Update the GLOBAL state when a user takes action!
-                        sap_db.df.loc[sap_db.df['TO'] == selected_to, 'Status'] = 'Confirmed'
-                        
-                        st.info(f"La palette HU {sap_db.df[sap_db.df['TO'] == selected_to]['HU'].values[0]} a été déplacée vers la destination.")
+                        if selected_to:
+                            # Update the GLOBAL state when a user takes action!
+                            sap_db.df.loc[sap_db.df['TO'] == selected_to, 'Status'] = 'Confirmed'
+                            st.success(f"✅ TO {selected_to} confirmé!")
+                            st.info(f"La palette HU {sap_db.df[sap_db.df['TO'] == selected_to]['HU'].values[0]} a été déplacée vers la destination.")
+                        else:
+                            st.warning("Aucun TO ouvert à confirmer.")
                 else:
                     st.button("Confirmer le Pick du TO", disabled=True, help="🔒 Missing SAP Authorization: CONFIRM_PICK_TO")
 
@@ -280,25 +325,23 @@ else:
                 st.subheader("OE2 Pharmacie : Sorties de matériel (Direction APH)")
                 st.write("Liste des TOs créés par la pharmacie pour les sorties de matériel.")
 
-                if st.button("Rafraîchir les données "): #space to avoid duplicate key error
-                    st.rerun()
+                @st.fragment(run_every="2s")
+                def live_pharma_table():
+                    st.write("*(🟢 Live View - Auto-syncing with global server...)*")
+                    st.dataframe(sap_db.pharma_df, use_container_width=True)
 
-                # --- Sample Data ---
-                data_pharma = {
-                    'TO': [346001, 346002, 346003],
-                    'Material': ['PH-201', 'PH-202', 'PH-203'],
-                    'Batch': ['B-0010', 'B-0011', 'B-0012'],
-                    'Quantity': [1, 1, 1],
-                    'Status': ['Open', 'Open', 'Open']
-                }
-                df_pharma = pd.DataFrame(data_pharma)
-                st.dataframe(df_pharma, use_container_width=True)
+                live_pharma_table()
                 
                 st.subheader("Confirmer un TO (Simulation LT12)")
-                selected_to_pharma = st.selectbox("Sélectionger un TO à confirmer:", df_pharma['TO'])
+                open_pharma_tos = sap_db.pharma_df[sap_db.pharma_df['Status'] == 'Open']['TO']
+                selected_to_pharma = st.selectbox("Sélectionner un TO à confirmer:", open_pharma_tos)
 
                 if st.button("Confirmer le TO de la Pharmacie", type="primary"):
-                    st.success(f"✅ TO {selected_to_pharma} confirmé!")
+                    if selected_to_pharma:
+                        sap_db.pharma_df.loc[sap_db.pharma_df['TO'] == selected_to_pharma, 'Status'] = 'Confirmed'
+                        st.success(f"✅ TO {selected_to_pharma} confirmé!")
+                    else:
+                        st.warning("Aucun TO ouvert à confirmer.")
 
 
             with tab_oe1_caristes:
@@ -312,30 +355,35 @@ else:
                     with col1:
                         lot_to_order = st.text_input("Entrer un numéro de lot à commander:")
                         if st.button("Commander le lot"):
-                            st.success(f"Lot {lot_to_order} commandé pour la fabrication.")
+                            if lot_to_order:
+                                new_order = pd.DataFrame([{
+                                    'Timestamp': pd.Timestamp.now().strftime("%Y-%m-%d %H:%M:%S"),
+                                    'Lot': lot_to_order,
+                                    'Destination': 'Fabrication',
+                                    'Status': 'En transit'
+                                }])
+                                sap_db.ordered_lots_df = pd.concat([sap_db.ordered_lots_df, new_order], ignore_index=True)
+                                st.success(f"Lot {lot_to_order} commandé pour la fabrication.")
+                            else:
+                                st.warning("Veuillez entrer un numéro de lot.")
                     with col2:
                         st.write("**Zones d'entreposage des palettes commandées:**")
                         st.text("Zone STG-A, STG-B, STG-C")
+                        
+                    st.divider()
+                    st.write("#### Historique des commandes (Live)")
+                    @st.fragment(run_every="2s")
+                    def live_ordered_lots():
+                        st.dataframe(sap_db.ordered_lots_df, use_container_width=True)
+                    live_ordered_lots()
 
 
                 elif sub_menu == "Entreposage Staging":
                     st.write("#### État de l'entreposage Staging (Locations 1-50)")
 
-                    # --- Sample Data ---
-                    locations = [f'STG-{i:02d}' for i in range(1, 51)]
-                    lots_1 = [f'B-0{np.random.randint(100, 200)}' if np.random.rand() > 0.3 else '' for _ in range(50)]
-                    lots_2 = [f'B-0{np.random.randint(200, 300)}' if (l != '' and np.random.rand() > 0.7) else '' for l in lots_1]
-                    destinations = [np.random.choice(['Ligne 1', 'Ligne 2', 'Ligne 3', 'Ligne 4', 'Déchet']) if l != '' else '' for l in lots_1]
-                    
-                    df_staging = pd.DataFrame({
-                        'Location': locations,
-                        'Lot 1': lots_1,
-                        'Lot 2': lots_2,
-                        'Destination': destinations
-                    })
-
                     def style_destination(val):
                         color = ''
+                        if not isinstance(val, str): return ''
                         if 'Ligne 1' in val: color = 'blue'
                         elif 'Ligne 2' in val: color = 'green'
                         elif 'Ligne 3' in val: color = 'orange'
@@ -343,10 +391,14 @@ else:
                         elif 'Déchet' in val: color = 'red'
                         return f'color: {color}; font-weight: bold;'
 
-                    st.dataframe(
-                        df_staging.style.applymap(style_destination, subset=['Destination']),
-                        use_container_width=True
-                    )
+                    @st.fragment(run_every="2s")
+                    def live_staging_table():
+                        st.write("*(🟢 Live View - Auto-syncing with global server...)*")
+                        st.dataframe(
+                            sap_db.staging_df.style.applymap(style_destination, subset=['Destination']),
+                            use_container_width=True
+                        )
+                    live_staging_table()
 
 
         elif department == "Manufacturing":
