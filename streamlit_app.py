@@ -283,9 +283,12 @@ else:
                     if mat_type == "BOM (COR3)":
                         material = st.selectbox("Material", ["MAT-1001 (Vials)", "MAT-1002 (Caps)", "MAT-1003 (Labels)"])
                     else:
-                        material = st.selectbox("Material", ["Cellophane Roll", "Packaging Tape", "Glue Box"])
+                        material = st.text_input("Material Description", placeholder="Enter non-consumable name...")
+                        if not material:  # Fallback if left empty
+                            material = "Misc. Non-consumable"
                 with col5:
-                    quantity = st.number_input("Req. Qty", min_value=1, step=1)
+                    qty_label = "Req. Qty (Pallets)" if mat_type == "BOM (COR3)" else "Req. Qty (Each)"
+                    quantity = st.number_input(qty_label, min_value=1, step=1)
                 with col6:
                     # Fetch material specific tracking
                     mat_data = current_po["materials"].get(material, {"target": 100, "confirmed": 0})
@@ -302,12 +305,21 @@ else:
                         new_to_number = int(sap_db.df['TO'].max() + 1) if not sap_db.df.empty else 345000
                         new_hu_number = int(sap_db.df['HU'].max() + 1) if not sap_db.df.empty else 801000
                         
+                        if mat_type == "BOM (COR3)":
+                            qty_desc = f"{quantity} Pallet(s)"
+                            mat_code = material.split(" ")[0]
+                            mat_name = material.split(' ', 1)[1] if ' ' in material else material
+                        else:
+                            qty_desc = f"{quantity} Each"
+                            mat_code = "NON-BOM"
+                            mat_name = material
+                            
                         # Update the global state
                         new_record = pd.DataFrame([{
                             'TO': new_to_number,
                             'HU': new_hu_number,
-                            'Material': material.split(" ")[0],
-                            'Description': f"{quantity}x {material.split(' ', 1)[1] if ' ' in material else ''} for {prod_line}",
+                            'Material': mat_code,
+                            'Description': f"{qty_desc} of {mat_name} for {prod_line}",
                             'Source': 'PKG-REQ',
                             'Destination': 'PAD',
                             'Status': 'Open',
@@ -316,7 +328,7 @@ else:
                         sap_db.df = pd.concat([sap_db.df, new_record], ignore_index=True)
                         
                         st.success(f"✅ Transfer Order {new_to_number} created successfully!")
-                        st.info(f"**Action Executed:** {quantity}x {material} requested for {prod_line}. Pallet redirection requested.")
+                        st.info(f"**Action Executed:** {qty_desc} of {mat_name} requested for {prod_line}. Pallet redirection requested.")
                 else:
                     st.button("Create TO (Transfer Order)", disabled=True, help="🔒 Missing SAP Authorization: CREATE_PACKAGING_TO")
                     st.error("You do not have the required SAP permissions to create packaging Transfer Orders.")
